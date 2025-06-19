@@ -1,6 +1,5 @@
-from itertools import chain
 from django.contrib.auth import get_user_model
-from django.db import models
+from django.db.models import Q
 from rest_framework import viewsets, permissions, status
 from rest_framework.generics import ListAPIView
 from rest_framework.response import Response
@@ -16,29 +15,24 @@ from .serializers import (
 User = get_user_model()
 
 
-# ✅ Handles both owned and shared document retrieval
+# ✅ Handles document CRUD with owner and shared-user access
 class DocumentViewSet(viewsets.ModelViewSet):
     permission_classes = [permissions.IsAuthenticated]
 
     def get_queryset(self):
-        # Prevent errors during Swagger schema generation
+        # Prevent errors during schema generation
         if getattr(self, 'swagger_fake_view', False):
             return Document.objects.none()
 
         user = self.request.user
 
-        # Documents owned by the user
-        owned_docs = Document.objects.filter(owner=user)
+        # Documents owned or shared with the user
+        owned_doc_ids = Document.objects.filter(owner=user).values_list("id", flat=True)
+        shared_doc_ids = DocumentShare.objects.filter(shared_with=user).values_list("document_id", flat=True)
 
-        # Documents shared with the user
-        shared_doc_ids = DocumentShare.objects.filter(
-            shared_with=user
-        ).values_list("document_id", flat=True)
-        shared_docs = Document.objects.filter(id__in=shared_doc_ids)
-
-        # Combine and deduplicate documents
-        combined_docs = list({doc.id: doc for doc in chain(owned_docs, shared_docs)}.values())
-        return combined_docs
+        # Combined QuerySet of accessible document IDs
+        accessible_ids = list(owned_doc_ids) + list(shared_doc_ids)
+        return Document.objects.filter(id__in=accessible_ids)
 
     def get_serializer_class(self):
         if self.action in ['create', 'update', 'partial_update']:
@@ -48,34 +42,13 @@ class DocumentViewSet(viewsets.ModelViewSet):
     def perform_create(self, serializer):
         serializer.save(owner=self.request.user)
 
-    def retrieve(self, request, *args, **kwargs):
-        user = request.user
-        doc_id = kwargs.get("pk")
 
-        try:
-            # Allow access to owned or shared documents
-            document = Document.objects.get(
-                models.Q(id=doc_id) & (
-                    models.Q(owner=user) |
-                    models.Q(id__in=DocumentShare.objects.filter(
-                        shared_with=user
-                    ).values_list("document_id", flat=True))
-                )
-            )
-        except Document.DoesNotExist:
-            return Response({"error": "Document not found or access denied."}, status=status.HTTP_404_NOT_FOUND)
-
-        serializer = self.get_serializer(document)
-        return Response(serializer.data)
-
-
-# ✅ Handles document sharing: add, edit, remove share permissions
+# ✅ Manages sharing (grant/edit/revoke permissions)
 class DocumentShareViewSet(viewsets.ModelViewSet):
     serializer_class = DocumentShareSerializer
     permission_classes = [permissions.IsAuthenticated]
 
     def get_queryset(self):
-        # Prevent errors during Swagger schema generation
         if getattr(self, 'swagger_fake_view', False):
             return DocumentShare.objects.none()
 
@@ -84,21 +57,25 @@ class DocumentShareViewSet(viewsets.ModelViewSet):
         ).select_related("document", "shared_with")
 
     def destroy(self, request, *args, **kwargs):
-        """Allow only the owner to revoke sharing"""
         instance = self.get_object()
         if instance.document.owner != request.user:
-            return Response({"error": "Only the owner can unshare this document."}, status=status.HTTP_403_FORBIDDEN)
+            return Response(
+                {"error": "Only the owner can unshare this document."},
+                status=status.HTTP_403_FORBIDDEN
+            )
         return super().destroy(request, *args, **kwargs)
 
     def update(self, request, *args, **kwargs):
-        """Allow only the owner to update 'can_edit' rights"""
         instance = self.get_object()
         if instance.document.owner != request.user:
-            return Response({"error": "Only the owner can update sharing permissions."}, status=status.HTTP_403_FORBIDDEN)
+            return Response(
+                {"error": "Only the owner can update sharing permissions."},
+                status=status.HTTP_403_FORBIDDEN
+            )
         return super().update(request, *args, **kwargs)
 
 
-# ✅ Returns a list of all users excluding the current user
+# ✅ Returns list of all users except the requester (used in share dropdown)
 class UserListView(ListAPIView):
     serializer_class = UserSummarySerializer
     permission_classes = [permissions.IsAuthenticated]

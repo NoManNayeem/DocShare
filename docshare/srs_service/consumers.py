@@ -27,7 +27,7 @@ class DocumentSyncConsumer(AsyncWebsocketConsumer):
             else f"Guest_{self.channel_name[-5:]}"
         )
 
-        # Assign a color to user
+        # Assign a unique color to user
         if self.username not in user_colors:
             user_colors[self.username] = self.assign_color()
 
@@ -59,7 +59,7 @@ class DocumentSyncConsumer(AsyncWebsocketConsumer):
         try:
             data = json.loads(text_data)
             message = data.get("message")
-            cursor = data.get("cursor")  # Optional: cursor data
+            cursor = data.get("cursor")  # Optional: cursor object
 
             if message is None and cursor is None:
                 raise ValueError("Empty payload.")
@@ -70,10 +70,10 @@ class DocumentSyncConsumer(AsyncWebsocketConsumer):
                 "color": user_colors.get(self.username),
             }
 
-            if message:
+            if message is not None:
                 payload["message"] = message
-            if cursor:
-                payload["cursor"] = cursor
+            if cursor is not None:
+                payload["cursor"] = cursor  # e.g., { position: 123, selection: [start, end] }
 
             await self.channel_layer.group_send(self.room_group_name, payload)
 
@@ -89,7 +89,7 @@ class DocumentSyncConsumer(AsyncWebsocketConsumer):
             "message": event.get("message"),
             "username": event["username"],
             "color": event["color"],
-            "cursor": event.get("cursor"),  # Optional: forward cursor
+            "cursor": event.get("cursor"),  # forwarded to frontend
         }))
 
     async def user_join(self, event):

@@ -1,3 +1,5 @@
+// src/pages/DocumentEditor.js
+
 import React, { useEffect, useRef, useState, useContext } from "react";
 import { useParams, useNavigate } from "react-router-dom";
 import useWebSocket from "react-use-websocket";
@@ -12,6 +14,7 @@ import {
   Form,
   Alert,
   Spinner,
+  Button,
 } from "react-bootstrap";
 import ShareDocumentForm from "../components/ShareDocumentForm";
 
@@ -26,7 +29,11 @@ function DocumentEditor() {
   const [canEdit, setCanEdit] = useState(false);
   const [messages, setMessages] = useState([]);
   const [activeUsers, setActiveUsers] = useState({});
+  const [cursors, setCursors] = useState({});
+  const [isSaving, setIsSaving] = useState(false);
+
   const editorRef = useRef(null);
+  const saveTimeoutRef = useRef(null);
 
   const wsUrl = `ws://localhost:8000/ws/doc/${id}/?token=${authTokens?.access}`;
 
@@ -36,7 +43,6 @@ function DocumentEditor() {
     shouldReconnect: () => true,
   });
 
-  // 🔄 Fetch document & determine permissions
   useEffect(() => {
     const fetchDoc = async () => {
       try {
@@ -46,7 +52,7 @@ function DocumentEditor() {
 
         const currentUserId = user?.user_id;
         const isOwner = res.data.owner.id === currentUserId;
-        const shared = res.data.shared_with.find(u => u.id === currentUserId);
+        const shared = res.data.shared_with.find((u) => u.id === currentUserId);
         setCanEdit(isOwner || shared?.can_edit);
       } catch (err) {
         console.error("Failed to fetch document:", err);
@@ -58,13 +64,12 @@ function DocumentEditor() {
     fetchDoc();
   }, [api, id, navigate, user]);
 
-  // 📡 Handle WebSocket messages
   useEffect(() => {
     if (!lastMessage) return;
 
     try {
       const data = JSON.parse(lastMessage.data);
-      const { type, username, color, message } = data;
+      const { type, username, color, message, cursor } = data;
 
       switch (type) {
         case "join":
@@ -81,11 +86,24 @@ function DocumentEditor() {
             delete updated[username];
             return updated;
           });
+          setCursors((prev) => {
+            const updated = { ...prev };
+            delete updated[username];
+            return updated;
+          });
           addMessage(`${username} left`);
           break;
 
         case "message":
-          setContent(message);
+          if (message !== content) {
+            setContent(message);
+          }
+          if (cursor && username) {
+            setCursors((prev) => ({
+              ...prev,
+              [username]: { ...cursor, color },
+            }));
+          }
           addMessage(`${username} is editing...`);
           break;
 
@@ -95,7 +113,7 @@ function DocumentEditor() {
     } catch (err) {
       console.error("WebSocket message parsing error:", err);
     }
-  }, [lastMessage]);
+  }, [lastMessage, content]);
 
   const addMessage = (msg) => {
     setMessages((prev) => [...prev.slice(-4), msg]);
@@ -104,10 +122,43 @@ function DocumentEditor() {
   const handleChange = (e) => {
     const value = e.target.value;
     setContent(value);
+
+    const selectionStart = e.target.selectionStart;
+
     if (canEdit && readyState === WebSocket.OPEN) {
-      sendMessage(JSON.stringify({ message: value }));
+      sendMessage(JSON.stringify({
+        message: value,
+        cursor: { position: selectionStart }
+      }));
+    }
+
+    if (saveTimeoutRef.current) clearTimeout(saveTimeoutRef.current);
+    saveTimeoutRef.current = setTimeout(() => {
+      api
+        .patch(`/api/documents/${id}/`, { content: value })
+        .then(() => console.log("💾 Auto-saved"))
+        .catch((err) => console.error("Auto-save failed", err));
+    }, 2000);
+  };
+
+  const handleManualSave = async () => {
+    try {
+      setIsSaving(true);
+      await api.patch(`/api/documents/${id}/`, { content });
+      console.log("✅ Manually saved");
+    } catch (err) {
+      console.error("Manual save failed:", err);
+      alert("Failed to manually save the document.");
+    } finally {
+      setIsSaving(false);
     }
   };
+
+  useEffect(() => {
+    return () => {
+      if (saveTimeoutRef.current) clearTimeout(saveTimeoutRef.current);
+    };
+  }, []);
 
   if (!document) {
     return (
@@ -122,20 +173,56 @@ function DocumentEditor() {
     <Container className="mt-4">
       <Row>
         <Col md={9}>
-          <Card className="p-3 shadow-sm">
-            <h4 className="mb-3">{document.title}</h4>
+          <Card className="p-3 shadow-sm position-relative">
+            <div className="d-flex justify-content-between align-items-center mb-3">
+              <h4 className="mb-0">{document.title}</h4>
+              {canEdit && (
+                <Button
+                  size="sm"
+                  variant="outline-primary"
+                  onClick={handleManualSave}
+                  disabled={isSaving}
+                >
+                  {isSaving ? "Saving..." : "💾 Save"}
+                </Button>
+              )}
+            </div>
+
             {!canEdit && (
-              <Alert variant="warning">You have read-only access to this document.</Alert>
+              <Alert variant="warning">
+                You have read-only access to this document.
+              </Alert>
             )}
-            <Form.Control
-              as="textarea"
-              rows={20}
-              value={content}
-              ref={editorRef}
-              onChange={handleChange}
-              readOnly={!canEdit}
-              style={{ fontFamily: "monospace", background: "#fcfcfc" }}
-            />
+
+            <div style={{ position: "relative" }}>
+              <Form.Control
+                as="textarea"
+                rows={20}
+                value={content}
+                ref={editorRef}
+                onChange={handleChange}
+                readOnly={!canEdit}
+                style={{ fontFamily: "monospace", background: "#fcfcfc" }}
+              />
+              {Object.entries(cursors).map(([name, cursor]) => (
+                <div
+                  key={name}
+                  style={{
+                    position: "absolute",
+                    left: `${(cursor.position || 0) * 8}px`,
+                    top: "0px",
+                    background: cursor.color,
+                    padding: "0 4px",
+                    fontSize: "0.75rem",
+                    borderRadius: 4,
+                    color: "#fff",
+                    pointerEvents: "none",
+                  }}
+                >
+                  {name}
+                </div>
+              ))}
+            </div>
           </Card>
         </Col>
 

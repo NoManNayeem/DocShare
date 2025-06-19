@@ -68,14 +68,15 @@ class DocumentSerializer(serializers.ModelSerializer):
         ]
 
     def get_shared_with(self, obj):
-        # ✅ Returns shared users with edit rights (from DocumentShare model)
+        # ✅ Safely retrieve shared users
+        shares = obj.shares.select_related("shared_with").all()
         return [
             {
                 "id": share.shared_with.id,
                 "username": share.shared_with.username,
                 "can_edit": share.can_edit
             }
-            for share in obj.shares.select_related("shared_with")
+            for share in shares
         ]
 
     def get_is_shared(self, obj):
@@ -83,8 +84,7 @@ class DocumentSerializer(serializers.ModelSerializer):
 
     def get_content_html(self, obj):
         """
-        Placeholder to convert JSON content to HTML if using TipTap/Quill.
-        Replace with actual renderer later.
+        Placeholder for converting JSON content to HTML (if using rich editors like TipTap/Quill).
         """
         return "<div>[Rendered HTML Preview]</div>"
 
