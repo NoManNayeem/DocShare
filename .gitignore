@@ -1,0 +1,80 @@
+# Do not Ignore
+!.env.example
+
+
+# === Python (Backend) ===
+__pycache__/
+*.py[cod]
+*.sqlite3
+*.log
+*.pot
+*.mo
+*.pyc
+*.pyo
+*.pyd
+*.env
+.env.*
+db.sqlite3
+instance/
+.mypy_cache/
+.pytest_cache/
+coverage/
+htmlcov/
+.vscode/
+.DS_Store
+
+# Django
+*.sqlite3
+/staticfiles/
+/media/
+/local_settings.py
+venv
+venv/
+/venv
+# === Node (Frontend) ===
+node_modules/
+dist/
+build/
+.cache/
+.npm/
+.vite/
+.env.local
+.env.development.local
+.env.test.local
+.env.production.local
+
+# React
+*.log
+*.env
+*.tgz
+.yarn/
+*.yarnclean
+yarn-error.log
+yarn-debug.log*
+npm-debug.log*
+package-lock.json
+
+# === IDE / OS / Editor Config ===
+.idea/
+.vscode/
+*.sublime-project
+*.sublime-workspace
+*.swp
+*.tmp
+*.bak
+Thumbs.db
+.DS_Store
+
+# === Coverage / Reports ===
+coverage/
+*.cover
+*.lcov
+.hypothesis/
+.pytest_cache/
+.tox/
+
+# === Misc ===
+*.zip
+*.tar.gz
+*.egg-info/
+*.bak
